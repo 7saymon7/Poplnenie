@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Розрахунок Дозамовлення Товарів</title>
+    <!-- Підключення Tailwind CSS для стилізації -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Підключення SheetJS (xlsx.js) для читання та запису файлів Excel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #000000; /* Абсолютно чорний фон */
+            color: #e0e0e0; /* Світлий колір тексту */
+        }
+        .modern-button {
+            transition: all 0.2s ease-in-out;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
+        }
+        .modern-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.2), 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+    <div class="bg-gray-950 p-8 rounded-2xl shadow-2xl w-full max-w-2xl border border-gray-800">
+        <!-- Назва компанії тепер більша в два рази і білого кольору -->
+        <h2 class="text-6xl font-bold text-center text-white mb-1">VAPE&BAR</h2>
+        <!-- Напис "Вітаю, Володимир" тепер яскраво-салатовий -->
+        <h2 class="text-2xl font-bold text-center text-lime-400 mb-2">Вітаю, Володимир</h2>
+        <!-- Основний заголовок, також яскраво-салатовий -->
+        <h1 class="text-4xl font-extrabold text-center text-lime-400 mb-8 tracking-wide">Розрахунок Дозамовлення Товарів</h1>
+
+        <div class="space-y-6">
+            <div>
+                <!-- Текст мітки яскраво-салатовий -->
+                <label for="fileInput" class="block text-lime-400 text-lg font-semibold mb-2">
+                    Завантажте файл з даними про товари (.xlsx):
+                </label>
+                <!-- Інпут із салатовим фокусом -->
+                <input type="file" id="fileInput" accept=".xlsx" class="w-full px-4 py-3 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-lime-500 text-white bg-gray-900 transition duration-200 ease-in-out">
+                <!-- Текст опису яскраво-салатовий -->
+                <p class="text-sm text-lime-400 mt-1">
+                    Очікуваний формат файлу Excel: перший рядок - заголовки (наприклад, "Назва товару", "Кількість", "Ціна").
+                </p>
+            </div>
+            
+            <div>
+                <!-- Текст мітки яскраво-салатовий -->
+                <label for="minQuantity" class="block text-lime-400 text-lg font-semibold mb-2">
+                    Бажана мінімальна кількість товару:
+                </label>
+                <!-- Інпут із салатовим фокусом -->
+                <input type="number" id="minQuantity" value="100" min="1" class="w-full px-4 py-3 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-lime-500 text-white bg-gray-900 transition duration-200 ease-in-out">
+            </div>
+        </div>
+
+        <!-- Кнопка розрахунку із салатовим фоном -->
+        <button id="processButton"
+                class="modern-button w-full mt-8 bg-lime-600 hover:bg-lime-700 text-white font-bold py-3 px-6 rounded-lg transition duration-300 ease-in-out transform focus:outline-none focus:ring-4 focus:ring-lime-400">
+            Розрахувати Дозамовлення
+        </button>
+
+        <div id="resultsContainer" class="mt-8 hidden">
+            <!-- Текст вітання яскраво-салатовий -->
+            <p id="welcomeMessage" class="text-center text-lime-400 mb-6"></p>
+            <!-- Заголовок результатів яскраво-салатовий -->
+            <h2 class="text-2xl font-bold text-lime-400 mb-4">Результати Дозамовлення:</h2>
+            <div id="results" class="bg-gray-900 p-4 rounded-lg border border-gray-800 min-h-[100px] max-h-[400px] overflow-auto text-lime-400">
+                <!-- Результати будуть відображені тут -->
+            </div>
+            <!-- Кнопка завантаження із салатовим фоном -->
+            <button id="downloadButton"
+                    class="modern-button mt-4 w-full bg-lime-700 hover:bg-lime-800 text-white font-bold py-3 px-6 rounded-lg transition duration-300 ease-in-out transform focus:outline-none focus:ring-4 focus:ring-lime-400">
+                Завантажити Звіт Дозамовлення (Excel)
+            </button>
+        </div>
+
+        <!-- MessageBox із салатовим фоном для повідомлень про успіх -->
+        <div id="messageBox" class="mt-6 p-4 rounded-lg text-white text-center hidden"></div>
+    </div>
+
+    <script>
+        // Отримуємо посилання на HTML-елементи
+        const fileInput = document.getElementById('fileInput');
+        const minQuantityInput = document.getElementById('minQuantity');
+        const processButton = document.getElementById('processButton');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const resultsDiv = document.getElementById('results');
+        const downloadButton = document.getElementById('downloadButton');
+        const messageBox = document.getElementById('messageBox');
+        const welcomeMessage = document.getElementById('welcomeMessage');
+
+        // Глобальна змінна для зберігання тільки тих товарів, які потрібно дозамовити.
+        // Цей масив буде використано як для відображення на екрані, так і для завантаження файлу.
+        let reorderItems = [];
+        // Зберігаємо індекси стовпців для зручності доступу
+        let colIndices = {
+            itemName: -1,
+            quantity: -1,
+            cost: -1,
+            retailPrice: -1
+        };
+
+        // Функція для відображення повідомлень користувачеві
+        function showMessage(message, type = 'info', errorObj = null) {
+            messageBox.textContent = message;
+            messageBox.classList.remove('hidden', 'bg-red-800', 'bg-lime-800', 'bg-blue-800');
+            // При помилці використовуємо червоний фон
+            if (type === 'error') {
+                messageBox.classList.add('bg-red-800');
+                if (errorObj) {
+                    console.error("Деталі помилки:", errorObj);
+                }
+            // При успіху використовуємо салатовий фон
+            } else if (type === 'success') {
+                messageBox.classList.add('bg-lime-800');
+            // При інформації використовуємо синій фон
+            } else {
+                messageBox.classList.add('bg-blue-800');
+            }
+        }
+
+        // Обробник події для кнопки "Розрахувати Дозамовлення"
+        processButton.addEventListener('click', () => {
+            const file = fileInput.files[0];
+            const minQuantity = parseInt(minQuantityInput.value, 10);
+
+            // Перевірка вхідних даних
+            if (!file) {
+                showMessage('Будь ласка, виберіть файл для обробки.', 'error');
+                return;
+            }
+            if (isNaN(minQuantity) || minQuantity <= 0) {
+                showMessage('Будь ласка, введіть дійсне мінімальне значення (більше 0).', 'error');
+                return;
+            }
+
+            showMessage('Обробка файлу...', 'info');
+            resultsContainer.classList.add('hidden');
+            resultsDiv.innerHTML = '';
+            downloadButton.classList.add('hidden');
+            reorderItems = []; // Очищаємо масив перед новою обробкою
+            colIndices = { itemName: -1, quantity: -1, cost: -1, retailPrice: -1 };
+
+            const reader = new FileReader();
+
+            // Обробник події, коли файл завантажено
+            reader.onload = (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    
+                    const rawExcelData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                    
+                    if (rawExcelData.length === 0) {
+                        showMessage('Файл Excel порожній або не містить даних.', 'error');
+                        return;
+                    }
+
+                    const headers = rawExcelData[0].map(h => String(h || '').trim().toLowerCase());
+
+                    colIndices.itemName = headers.findIndex(h => h === 'назва товару' || h === 'назва' || h === 'товар');
+                    colIndices.quantity = headers.findIndex(h => h === 'кількість');
+                    colIndices.cost = headers.findIndex(h => h === 'ціна' || h === 'собівартість');
+                    colIndices.retailPrice = headers.findIndex(h => h === 'роздрібна ціна');
+
+                    if (colIndices.itemName === -1) {
+                        showMessage('У файлі Excel не знайдено стовпець з назвами товарів (очікується "Назва", "Товар" або "Назва товару").', 'error');
+                        return;
+                    }
+                    if (colIndices.quantity === -1) {
+                        showMessage('У файлі Excel не знайдено стовпець із заголовком "Кількість". Перевірте файл.', 'error');
+                        return;
+                    }
+
+                    // Оновлені заголовки для завантаження
+                    // Додаємо порожній рядок для порожнього стовпця B
+                    const outputExcelHeaders = ['Назва Товару', '', 'Необхідно довезти', 'Собівартість'];
+                    reorderItems.push(outputExcelHeaders);
+
+                    // Обробляємо кожний рядок даних Excel (починаємо з 1, оскільки 0 - це заголовки)
+                    for (let i = 1; i < rawExcelData.length; i++) {
+                        const row = rawExcelData[i];
+                        
+                        const itemName = String(row[colIndices.itemName] || '').trim();
+                        const quantityRaw = row[colIndices.quantity];
+                        const quantity = isNaN(parseInt(String(quantityRaw || '').trim(), 10)) ? 0 : parseInt(String(quantityRaw || '').trim(), 10);
+                        const cost = (colIndices.cost !== -1 && row[colIndices.cost] !== undefined) ? row[colIndices.cost] : '';
+
+                        if (!itemName) {
+                            console.warn(`Пропуск рядка даних ${i} через відсутність назви товару.`);
+                            continue;
+                        }
+
+                        // Перевіряємо, чи потрібно дозамовлення
+                        if (quantity < minQuantity) {
+                            const needed = minQuantity - quantity;
+                            // Додаємо товар до масиву з порожнім полем для стовпця B
+                            reorderItems.push([itemName, '', needed, cost]);
+                        }
+                    }
+                    
+                    // Відображаємо вітальне повідомлення
+                    welcomeMessage.textContent = 'Доброго времені суток.';
+
+                    // Відображаємо результати на екрані
+                    if (reorderItems.length > 1) { // Перевіряємо, чи є щось, крім заголовків
+                        let resultsHtml = '<table class="min-w-full bg-gray-900 rounded-lg overflow-hidden shadow-md text-lime-400">';
+                        resultsHtml += '<thead class="bg-gray-800 border-b border-gray-700"><tr class="text-left text-lime-400">';
+                        // Оновлені заголовки для HTML
+                        resultsHtml += `<th class="py-2 px-4">${reorderItems[0][0]}</th>`; // Назва Товару (A)
+                        resultsHtml += `<th class="py-2 px-4"></th>`; // Пустий стовпець (B)
+                        resultsHtml += `<th class="py-2 px-4">${reorderItems[0][2]}</th>`; // Необхідно довезти (C)
+                        resultsHtml += `<th class="py-2 px-4">${reorderItems[0][3]}</th>`; // Собівартість (D)
+                        resultsHtml += '</tr></thead>';
+                        resultsHtml += '<tbody>';
+                        
+                        for (let i = 1; i < reorderItems.length; i++) {
+                            const item = reorderItems[i];
+                            resultsHtml += `<tr class="border-b border-gray-800">`;
+                            resultsHtml += `<td class="py-2 px-4">${item[0]}</td>`; // Назва
+                            resultsHtml += `<td class="py-2 px-4">${item[1]}</td>`; // Пустий стовпець
+                            resultsHtml += `<td class="py-2 px-4 font-semibold text-lime-400">${item[2]}</td>`; // Необхідно довезти
+                            resultsHtml += `<td class="py-2 px-4">${item[3]}</td>`; // Собівартість
+                            resultsHtml += `</tr>`;
+                        }
+                        resultsHtml += '</tbody></table>';
+                        resultsDiv.innerHTML = resultsHtml;
+                        resultsContainer.classList.remove('hidden');
+                        welcomeMessage.classList.remove('hidden');
+                        downloadButton.classList.remove('hidden');
+                        showMessage('Розрахунок завершено! Перегляньте таблицю нижче та завантажте звіт.', 'success');
+                    } else {
+                        // Якщо жоден товар не потребує дозамовлення
+                        resultsDiv.innerHTML = '<p class="text-center text-lime-400 py-4">Немає товарів, які потребують дозамовлення. Всі товари в достатній кількості.</p>';
+                        resultsContainer.classList.remove('hidden');
+                        welcomeMessage.classList.remove('hidden');
+                        downloadButton.classList.add('hidden');
+                        showMessage('Немає товарів, які потребують дозамовлення. Всі товари в достатній кількості.', 'info');
+                    }
+
+                } catch (error) {
+                    console.error("Помилка обробки файлу Excel:", error);
+                    showMessage('Помилка обробки файлу Excel. Перевірте формат файлу або його цілісність.', 'error', error);
+                }
+            };
+
+            // Обробник події для помилок читання файлу
+            reader.onerror = () => {
+                showMessage('Помилка читання файлу. Спробуйте інший файл.', 'error');
+            };
+
+            // Читаємо файл як ArrayBuffer для обробки Excel
+            reader.readAsArrayBuffer(file);
+        });
+
+        // Обробник події для кнопки завантаження
+        downloadButton.addEventListener('click', () => {
+            if (reorderItems.length <= 1) { // Перевіряємо, чи є щось, крім заголовків
+                showMessage('Немає даних для завантаження. Спочатку обробіть файл.', 'info');
+                return;
+            }
+
+            const minQuantity = parseInt(minQuantityInput.value, 10);
+            
+            // Створюємо нову книгу Excel
+            const wb = XLSX.utils.book_new();
+            // Створюємо новий лист з даних
+            const ws = XLSX.utils.aoa_to_sheet(reorderItems);
+
+            // Додаємо лист у книгу
+            XLSX.utils.book_append_sheet(wb, ws, "Звіт_Дозамовлення");
+
+            // Записуємо книгу у файл .xlsx
+            XLSX.writeFile(wb, `звіт_дозамовлення_до_${minQuantity}.xlsx`);
+
+            showMessage('Файл Excel успішно завантажено!', 'success');
+        });
+    </script>
+</body>
+</html>
